@@ -1,32 +1,42 @@
-export const config = {
-  runtime: 'edge',
-};
+// Vercel Serverless Function (Node.js runtime)
+export default async function handler(req, res) {
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-export default async function handler(request) {
+  // Handle OPTIONS request for CORS
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   // Only allow POST requests
-  if (request.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' },
-    });
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    const { prompt } = await request.json();
+    const { prompt } = req.body;
 
     if (!prompt) {
-      return new Response(JSON.stringify({ error: 'Prompt is required' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return res.status(400).json({ error: 'Prompt is required' });
     }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    
+    if (!apiKey) {
+      console.error('ANTHROPIC_API_KEY not found in environment variables');
+      return res.status(500).json({ error: 'API key not configured' });
+    }
+
+    console.log('Calling Claude API...');
 
     // Call Claude API with server-side API key (secure)
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
@@ -37,34 +47,23 @@ export default async function handler(request) {
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      console.error('Claude API error:', error);
-      return new Response(
-        JSON.stringify({ error: 'Failed to generate analysis' }),
-        {
-          status: response.status,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      );
+      const errorText = await response.text();
+      console.error('Claude API error:', response.status, errorText);
+      return res.status(response.status).json({ 
+        error: 'Failed to generate analysis',
+        details: errorText 
+      });
     }
 
     const data = await response.json();
+    console.log('Claude API response received successfully');
 
-    return new Response(JSON.stringify(data), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-      },
-    });
+    return res.status(200).json(data);
   } catch (error) {
-    console.error('Error:', error);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    console.error('Error in API function:', error);
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      message: error.message 
+    });
   }
 }
